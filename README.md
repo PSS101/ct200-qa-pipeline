@@ -4,14 +4,13 @@ Turns the CardioTrack CT-200 manual into a versioned, browsable section
 tree, and generates QA test-case ideas from user-selected sections while
 tracking staleness across document revisions.
 
-**Status note (read this first):** the parser was written and tested
-without access to the actual `ct200_manual.pdf` / `ct200_manual_v2.pdf`
-files (only the assignment brief PDF was available while building this).
-Everything is real, runnable code and the 3 required unit tests pass
-against synthetic edge cases mirroring the ones the assignment calls out
-by name - but the parser has **not yet been run against, or tuned
-against, the real CT-200 manual's specific irregularities**. See
-`APPROACH.md` for exactly what to check first once you have the real PDF.
+**Status note:** the parser has now been run against, and fixed against,
+the real `ct200_manual_v2.pdf` (included in `data/`). Three real bugs were
+found this way (ligature corruption, numbered list items misclassified as
+headings, cover title split across nodes) and fixed - see `APPROACH.md`
+section 4a and `app/parser.py`'s docstring for the full story, and
+`tests/test_real_manual_regression.py` for the regression tests locking
+each fix in. 11 tests total, all passing.
 
 ## Setup
 
@@ -99,5 +98,11 @@ curl localhost:8000/generations/by-selection/<SELECTION_ID>
   scope per the assignment.
 - Auto-regeneration of stale test cases - also explicitly out of scope;
   staleness is surfaced, not auto-fixed.
-- The parser has not been validated against the real CT-200 PDF (see
-  status note above and `APPROACH.md`).
+- Table structure extraction (spec table, error-code table extract as
+  flattened text, not rows/columns) and figure/caption extraction - known
+  gaps, confirmed real against the actual manual, not fixed given time.
+  See `APPROACH.md`.
+- Only `ct200_manual_v2.pdf` was available when finalizing this - if
+  `ct200_manual.pdf` (v1) differs structurally, the ingestion/versioning
+  flow should still be re-run against it to confirm the matcher behaves
+  as expected on the real v1->v2 diff.

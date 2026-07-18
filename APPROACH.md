@@ -1,9 +1,20 @@
 # Approach Document - CT-200 Document Intelligence API
 
-## Honest scoping note
+## Honest scoping note (updated after getting the real manual)
 
-This was built in a compressed timeframe and **without access to the actual
-`ct200_manual.pdf` / `ct200_manual_v2.pdf` files** - only the assignment
+**Update:** the real `ct200_manual_v2.pdf` became available after the
+initial version of this document was written. Everything below the
+original scoping note has been re-run and fixed against the real file -
+this is no longer speculative. Three real bugs were found and fixed;
+see `app/parser.py`'s module docstring and `tests/test_real_manual_regression.py`
+for the full details of each, summarized in section 4 below. The original
+honest-uncertainty framing is left below for the record, since it's part
+of the actual engineering process this document is supposed to describe.
+
+### Original note (written before the real PDF was available)
+
+This was built in a compressed timeframe and without access to the actual
+`ct200_manual.pdf` / `ct200_manual_v2.pdf` files - only the assignment
 brief was available. Every module below is real, working code (imports
 cleanly, the FastAPI app boots, all 3 required unit tests pass), but the
 parser's heuristics have not been tuned or validated against the real
@@ -73,7 +84,61 @@ heading text are two different objects unless something upstream
   text block below/right of the image bounding box within some threshold),
   but this wasn't built out given time constraints - flagged, not hidden.
 
-## 4. What my initial implementation failed to handle
+## 4a. What running the parser against the REAL manual found and fixed
+
+This is the most important part of this document, honestly - it's the
+actual validation the earlier draft could only promise to do later.
+Running `parse_pdf_to_tree` against the real `ct200_manual_v2.pdf` and
+dumping the tree by eye (not assuming it was correct) surfaced three real
+bugs, none of which were caught by the synthetic unit tests, because the
+synthetic tests only encode edge cases I *thought of* - not ones a real
+document actually contains:
+
+1. **Ligature corruption**: PyMuPDF's raw extraction returns typographic
+   ligatures ("ﬁ", "ﬀ") as single codepoints, so "Specifications" came
+   out as "Speciﬁcations". `unicodedata.normalize("NFKD", ...)` does NOT
+   fix this (verified directly - these are presentation-form ligatures,
+   not composed accent sequences). Fixed with an explicit replacement
+   table in `_fix_ligatures`.
+2. **Numbered list items misclassified as section headings**: the
+   clinical classification list inside section 3.3 ("1. Normal:
+   systolic < 120...", "2. Elevated: ...") matches the exact same
+   `N. Title` numbering pattern as real section headings like "3. Device
+   Operation", and was being promoted into 5 spurious top-level nodes -
+   corrupting the tree structure, not just adding noise. Found by
+   literally reading the dumped tree output and noticing "1. Normal:
+   systolic..." sitting at the top level where it obviously didn't
+   belong. Fixed by checking actual extracted font metadata: every real
+   heading in this document is bold and/or a recognized larger heading
+   size, while these list items are plain, non-bold, body-size text -
+   a real and confirmed distinguishing signal, not a guess.
+3. **Cover title split across three nodes**: "CardioTrack CT-200 Home
+   Blood" / "Pressure Monitor — Technical &" / "User Manual" wraps across
+   three lines at the same large font size and were each being promoted
+   to their own top-level section. Fixed by accumulating consecutive
+   non-numbered heading-styled lines seen before the first real numbered
+   section into a single title node.
+
+Also **confirmed as real, not hypothetical**, by this same manual: the
+duplicate "Error Codes" heading (appears as both 4.2 and 7.1), the
+skipped heading level (2.1 -> 2.1.1.1 with no 2.1.1), and out-of-order
+section numbering in the document body (3.1, 3.2, 3.4, 3.3 appear in
+exactly that order on the page) - all three were originally designed for
+speculatively and turned out to genuinely occur in the real document.
+
+All of the above are locked in as regression tests against the real file
+in `tests/test_real_manual_regression.py` (6 tests), in addition to the
+3 originally-required synthetic edge-case tests in `test_parser.py` and
+the full end-to-end flow in `test_integration_smoke.py` - 11 tests total,
+all passing.
+
+**Still not fixed, and now confirmed real rather than hypothetical**:
+the spec table (section 2.1) and error-code table (4.2) both extract as
+flattened line-by-line text rather than structured rows - I saw this
+directly in the dumped output and chose not to fix it given time, same
+reasoning as before (would use `page.find_tables()`).
+
+
 
 Initial cut only had the numbering-pattern heading detector - no font-size
 fallback at all. Manually re-reading the assignment brief (which explicitly
