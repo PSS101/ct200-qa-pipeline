@@ -154,19 +154,66 @@ function and realizing it didn't need that shape at all, since parent
 linkage is already implicit in `node.children`. Simplified it away rather
 than leaving dead/misleading code in.
 
+## 4b. Real v1 -> v2 versioning validation (the part I originally flagged as untested)
+
+**Update: both real files (`ct200_manual.pdf` and `ct200_manual_v2.pdf`)
+became available and this has now actually been tested end to end** -
+this was the single weakest part of the original submission (only v2 was
+available, so the versioning/staleness flow had only been proven against
+a synthetic stand-in). Running the real ingest -> re-ingest -> diff flow
+against the two real files found and fixed one real bug, and confirmed
+the core logic is correct on genuine content changes:
+
+**Bug found: old/new version labels were backwards for added/removed
+nodes.** When a node exists only in the newer version (e.g. the new
+`5.3 Data Export` section, which genuinely doesn't exist in v1), the diff
+endpoint originally labeled the query result using "whichever version you
+queried from" as `old_version`, rather than actual chronological order -
+so querying the v2-only node reported `old_version=2, new_version=1`,
+backwards. Fixed in `app/routers/browse.py` to compare version numbers
+directly rather than assuming the queried node is always the "old" side.
+Locked in by `test_new_section_in_v2_detected_as_added_with_correct_version_order`.
+
+**Confirmed correct on real content diffs between the two manuals:**
+- `2.1.1.1 Battery Life`: v1 says 300 cycles / 15% threshold, v2 says 250
+  cycles / 10% threshold (with wording explicitly noting the revision) -
+  correctly flagged `changed=True`.
+- `3.2 Cuff Inflation Sequence`: v1 says 40 mmHg increments, v2 says 30
+  mmHg (also with explicit "reduced from... 40 mmHg" wording) - correctly
+  flagged `changed=True`.
+- `4.2 Error Codes`: v2 changes E3's auto-deflate timing (2s -> 1.5s) and
+  adds a new E6 row (Bluetooth sync failure) not present in v1 - correctly
+  flagged `changed=True`.
+- `6.1 Cleaning Instructions`: byte-identical text in both files -
+  correctly flagged `changed=False`, with matching hashes.
+- `5.3 Data Export`: exists only in v2 - correctly detected as an added
+  node (see bug above).
+
+This is real, not synthetic, validation of the exact thing the assignment
+is testing for (traceability surviving a document revision), and it's the
+change I'm most confident actually matters, versus code that merely
+imports cleanly.
+
+
+
 ## 5. How I identified failures
 
-Given the constraint of not having the real PDF, validation here was: (a)
-writing unit tests that encode the assignment's own named edge cases and
-running them for real (not hand-simulated - `pytest` actually executed
-and passed, shown in commit history), and (b) tracing through the ingestion
-code path (`parse_pdf_to_tree` -> `_persist_tree` -> matcher) manually
-against constructed examples to check parent_id/logical_id wiring was
-internally consistent. What I did **not** get to do, and would prioritize
-first with more time: run the actual pipeline against `ct200_manual.pdf`,
-dump the resulting tree, and diff it by eye against the manual's real
-table of contents - that's the validation step that actually matters and
-I don't want to overstate what synthetic unit tests prove.
+Originally, given the constraint of not having the real PDF, validation
+here was: (a) writing unit tests encoding the assignment's own named edge
+cases and running them for real, and (b) manually tracing through the
+ingestion code path against constructed examples. That section explicitly
+said the more important step - running against the real file and diffing
+by eye - hadn't happened yet.
+
+**It has now happened** (see sections 4a/4b above), and it's exactly what
+found the three parser bugs and the version-label bug: the process was
+literally "run `parse_pdf_to_tree` against the real PDF, print the tree,
+and read it looking for anything that looks wrong" - which is how
+"1. Normal: systolic < 120..." sitting at the top level jumped out
+immediately as obviously incorrect. No amount of additional synthetic
+unit tests would have caught that, because I hadn't thought to write a
+synthetic case for "a numbered clinical classification list embedded in
+body text" - it's not a case you'd invent, only one you'd find.
 
 ## 6. Version-matching strategy and where it breaks
 
@@ -213,13 +260,15 @@ since something downstream may already reference the earlier generation.
 
 ## 8. What I'd do differently with more time
 
-1. Get the real PDF, run the parser, and manually diff the output tree
-   against the manual's actual TOC - this is the single most important
-   validation step and the one I couldn't do here.
+1. ~~Get the real PDF, run the parser, and manually diff the output tree
+   against the manual's actual TOC~~ - **done**, see section 4a/4b. Next
+   would be running this against a third hypothetical version to see how
+   well the matcher holds up over a longer version chain than just v1/v2.
 2. Add a fuzzy-title-similarity fallback to the version matcher (rapidfuzz
-   token-sort ratio) for the renumber+reword case above.
+   token-sort ratio) for the renumber+reword case described in section 6.
 3. Add table detection (PyMuPDF's `page.find_tables()` API) instead of
-   flattening tables into prose body text.
+   flattening the spec table and error-code table into prose body text -
+   confirmed real and unaddressed against both actual manuals.
 4. Add figure/caption extraction by spatial proximity.
 5. Swap the JSON generation store for real MongoDB (or Postgres JSONB) if
    this needed to handle concurrent writes or scale past a single manual.

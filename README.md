@@ -4,13 +4,14 @@ Turns the CardioTrack CT-200 manual into a versioned, browsable section
 tree, and generates QA test-case ideas from user-selected sections while
 tracking staleness across document revisions.
 
-**Status note:** the parser has now been run against, and fixed against,
-the real `ct200_manual_v2.pdf` (included in `data/`). Three real bugs were
-found this way (ligature corruption, numbered list items misclassified as
-headings, cover title split across nodes) and fixed - see `APPROACH.md`
-section 4a and `app/parser.py`'s docstring for the full story, and
-`tests/test_real_manual_regression.py` for the regression tests locking
-each fix in. 11 tests total, all passing.
+**Status note:** both real manuals are now in `data/` and the full
+ingest -> re-ingest -> diff -> staleness flow has been run end-to-end
+against them (not just synthetic stand-ins). This found and fixed a real
+version-labeling bug (old/new version numbers were swapped for
+added/removed nodes) in addition to the 3 parser bugs found earlier -
+see `APPROACH.md` sections 4a and 4b, and
+`tests/test_real_versioning_regression.py` for the regression tests.
+15 tests total, all passing.
 
 ## Setup
 
@@ -100,9 +101,10 @@ curl localhost:8000/generations/by-selection/<SELECTION_ID>
   staleness is surfaced, not auto-fixed.
 - Table structure extraction (spec table, error-code table extract as
   flattened text, not rows/columns) and figure/caption extraction - known
-  gaps, confirmed real against the actual manual, not fixed given time.
+  gaps, confirmed real against both actual manuals, not fixed given time.
   See `APPROACH.md`.
-- Only `ct200_manual_v2.pdf` was available when finalizing this - if
-  `ct200_manual.pdf` (v1) differs structurally, the ingestion/versioning
-  flow should still be re-run against it to confirm the matcher behaves
-  as expected on the real v1->v2 diff.
+- The version matcher has only been tested across one revision (v1->v2).
+  A longer version chain (v1->v2->v3...), or a section that's both
+  renumbered and reworded in the same revision, would likely expose the
+  matcher's known heading-text-fallback limitation - see `APPROACH.md`
+  section 6.
