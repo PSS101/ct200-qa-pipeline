@@ -116,13 +116,30 @@ def node_diff(document_id: str, node_id: str, db: Session = Depends(get_db)):
         .first()
     )
     if not counterpart:
-        # logical_id has no match in the other version -> node was added or removed
-        return DiffSummary(
-            node_logical_id=node.logical_id, changed=True,
-            old_version=node.version.version_number, new_version=other_version.version_number,
-            old_hash=node.content_hash, new_hash=None,
-            old_excerpt=node.body_text[:200], new_excerpt=None,
-        )
+        # logical_id has no match in the other version -> node was added or
+        # removed. Label old/new by actual chronology (lower version
+        # number = older), not by which side the query happened to be on -
+        # a real bug found while testing against the real v1/v2 manuals:
+        # querying a v2-only node originally reported old_version=2,
+        # new_version=1, which is backwards.
+        this_v = node.version.version_number
+        other_v = other_version.version_number
+        if this_v < other_v:
+            # queried node is the older side; it's absent in other_v (removed)
+            return DiffSummary(
+                node_logical_id=node.logical_id, changed=True,
+                old_version=this_v, new_version=other_v,
+                old_hash=node.content_hash, new_hash=None,
+                old_excerpt=node.body_text[:200], new_excerpt=None,
+            )
+        else:
+            # queried node is the newer side; it's absent in other_v (added)
+            return DiffSummary(
+                node_logical_id=node.logical_id, changed=True,
+                old_version=other_v, new_version=this_v,
+                old_hash=None, new_hash=node.content_hash,
+                old_excerpt=None, new_excerpt=node.body_text[:200],
+            )
 
     older, newer = sorted(
         [node, counterpart], key=lambda n: n.version.version_number
